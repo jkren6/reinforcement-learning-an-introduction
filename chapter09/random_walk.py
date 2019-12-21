@@ -12,10 +12,127 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-# # of states except for terminal states
+########
+# Start of tile3.py
+
+"""
+Tile Coding Software version 3.0beta
+by Rich Sutton
+based on a program created by Steph Schaeffer and others
+External documentation and recommendations on the use of this code is available in the 
+reinforcement learning textbook by Sutton and Barto, and on the web.
+These need to be understood before this code is.
+
+This software is for Python 3 or more.
+
+This is an implementation of grid-style tile codings, based originally on
+the UNH CMAC code (see http://www.ece.unh.edu/robots/cmac.htm), but by now highly changed. 
+Here we provide a function, "tiles", that maps floating and integer
+variables to a list of tiles, and a second function "tiles-wrap" that does the same while
+wrapping some floats to provided widths (the lower wrap value is always 0).
+
+The float variables will be gridded at unit intervals, so generalization
+will be by approximately 1 in each direction, and any scaling will have 
+to be done externally before calling tiles.
+
+Num-tilings should be a power of 2, e.g., 16. To make the offsetting work properly, it should
+also be greater than or equal to four times the number of floats.
+
+The first argument is either an index hash table of a given size (created by (make-iht size)), 
+an integer "size" (range of the indices from 0), or nil (for testing, indicating that the tile 
+coordinates are to be returned without being converted to indices).
+"""
+
+basehash = hash
+
+
+class IHT:
+    "Structure to handle collisions"
+
+    def __init__(self, sizeval):
+        self.size = sizeval
+        self.overfullCount = 0
+        self.dictionary = {}
+
+    def __str__(self):
+        "Prepares a string for printing whenever this object is printed"
+        return "Collision table:" + \
+               " size:" + str(self.size) + \
+               " overfullCount:" + str(self.overfullCount) + \
+               " dictionary:" + str(len(self.dictionary)) + " items"
+
+    def count(self):
+        return len(self.dictionary)
+
+    def fullp(self):
+        return len(self.dictionary) >= self.size
+
+    def getindex(self, obj, readonly=False):
+        d = self.dictionary
+        if obj in d:
+            return d[obj]
+        elif readonly:
+            return None
+        size = self.size
+        count = self.count()
+        if count >= size:
+            if self.overfullCount == 0: print('IHT full, starting to allow collisions')
+            self.overfullCount += 1
+            return basehash(obj) % self.size
+        else:
+            d[obj] = count
+            return count
+
+
+def hashcoords(coordinates, m, readonly=False):
+    if type(m) == IHT: return m.getindex(tuple(coordinates), readonly)
+    if type(m) == int: return basehash(tuple(coordinates)) % m
+    if m == None: return coordinates
+
+
+from math import floor, log
+from itertools import zip_longest
+
+
+def tiles(ihtORsize, numtilings, floats, ints=[], readonly=False):
+    """returns num-tilings tile indices corresponding to the floats and ints"""
+    qfloats = [floor(f * numtilings) for f in floats]
+    Tiles = []
+    for tiling in range(numtilings):
+        tilingX2 = tiling * 2
+        coords = [tiling]
+        b = tiling
+        for q in qfloats:
+            coords.append((q + b) // numtilings)
+            b += tilingX2
+        coords.extend(ints)
+        Tiles.append(hashcoords(coords, ihtORsize, readonly))
+    return Tiles
+
+
+def tileswrap(ihtORsize, numtilings, floats, wrapwidths, ints=[], readonly=False):
+    """returns num-tilings tile indices corresponding to the floats and ints, wrapping some floats"""
+    qfloats = [floor(f * numtilings) for f in floats]
+    Tiles = []
+    for tiling in range(numtilings):
+        tilingX2 = tiling * 2
+        coords = [tiling]
+        b = tiling
+        for q, width in zip_longest(qfloats, wrapwidths):
+            c = (q + b % numtilings) // numtilings
+            coords.append(c % width if width else c)
+            b += tilingX2
+        coords.extend(ints)
+        Tiles.append(hashcoords(coords, ihtORsize, readonly))
+    return Tiles
+
+# End of tile3.py
+#########
+
+# the number of states except for terminal states
 N_STATES = 1000
 
-# all states
+# all states, np.arange generate an array with the number from 1 to 1000
 STATES = np.arange(1, N_STATES + 1)
 
 # start from a central state
@@ -33,11 +150,11 @@ ACTIONS = [ACTION_LEFT, ACTION_RIGHT]
 STEP_RANGE = 100
 
 def compute_true_value():
-    # true state value, just a promising guess
+    # true state value, just a promising guess. true_value[0]=-1, true_value[1001]=1
     true_value = np.arange(-1001, 1003, 2) / 1001.0
 
     # Dynamic programming to find the true state values, based on the promising guess above
-    # Assume all rewards are 0, given that we have already given value -1 and 1 to terminal states
+    # Assume all rewards are 0, given that we have already given value -1 and 1 to terminal states. TODO: is this ok?
     while True:
         old_value = np.copy(true_value)
         for state in STATES:
@@ -46,8 +163,10 @@ def compute_true_value():
                 for step in range(1, STEP_RANGE + 1):
                     step *= action
                     next_state = state + step
+                    # min() returns the minimum number in (). Here, the final return is next_state or 1001 (if
+                    # next_state > 1001) or 0 (if next_state < 1001).
                     next_state = max(min(next_state, N_STATES + 1), 0)
-                    # asynchronous update for faster convergence
+                    # asynchronous update for faster convergence  TODO: why he says asynchronous update
                     true_value[state] += 1.0 / (2 * STEP_RANGE) * true_value[next_state]
         error = np.sum(np.abs(old_value - true_value))
         if error < 1e-2:
@@ -60,7 +179,7 @@ def compute_true_value():
 # take an @action at @state, return new state and reward for this transition
 def step(state, action):
     step = np.random.randint(1, STEP_RANGE + 1)
-    step *= action
+    step *= action  # because action here only indicates to the position, left (-1) or right (1).
     state += step
     state = max(min(state, N_STATES + 1), 0)
     if state == 0:
@@ -91,7 +210,7 @@ class ValueFunction:
     def value(self, state):
         if state in END_STATES:
             return 0
-        group_index = (state - 1) // self.group_size
+        group_index = (state - 1) // self.group_size   # // is init division
         return self.params[group_index]
 
     # update parameters
@@ -103,7 +222,7 @@ class ValueFunction:
 
 # a wrapper class for tile coding value function
 class TilingsValueFunction:
-    # @num_of_tilings: # of tilings
+    # @num_of_tilings
     # @tileWidth: each tiling has several tiles, this parameter specifies the width of each tile
     # @tilingOffset: specifies how tilings are put together
     def __init__(self, numOfTilings, tileWidth, tilingOffset):
@@ -112,7 +231,8 @@ class TilingsValueFunction:
         self.tilingOffset = tilingOffset
 
         # To make sure that each sate is covered by same number of tiles,
-        # we need one more tile for each tiling
+        # we need one more tile for each tiling  TODO: why one more?
+        # tilingSize is the number of tiles in one tiling.
         self.tilingSize = N_STATES // tileWidth + 1
 
         # weight for each tile
@@ -120,7 +240,7 @@ class TilingsValueFunction:
 
         # For performance, only track the starting position for each tiling
         # As we have one more tile for each tiling, the starting position will be negative
-        self.tilings = np.arange(-tileWidth + 1, 0, tilingOffset)
+        self.tilings = np.arange(-tileWidth + 1, 0, tilingOffset)   # np.arange(start,stop,step)
 
     # get the value of @state
     def value(self, state):
@@ -161,7 +281,7 @@ class BasesValueFunction:
         self.bases = []
         if type == POLYNOMIAL_BASES:
             for i in range(0, order + 1):
-                self.bases.append(lambda s, i=i: pow(s, i))
+                self.bases.append(lambda s, i=i: pow(s, i))   # x = pow(4, 3), Return the value of 4 to the power of 3 (same as 4 * 4 * 4)
         elif type == FOURIER_BASES:
             for i in range(0, order + 1):
                 self.bases.append(lambda s, i=i: np.cos(i * np.pi * s))
@@ -178,8 +298,13 @@ class BasesValueFunction:
         # map the state space into [0, 1]
         state /= float(N_STATES)
         # get derivative value
-        derivative_value = np.asarray([func(state) for func in self.bases])
-        self.weights += delta * derivative_value
+        # @delta: step size * (target - old estimation)
+        # derivative_value = np.asarray([func(state) for func in self.bases])
+        # self.weights += delta * derivative_value
+        # The following two lines code were changed from above.
+        feature = np.asarray([func(state) for func in self.bases])
+        self.weights += delta * feature
+
 
 # gradient Monte Carlo algorithm
 # @value_function: an instance of class ValueFunction
@@ -189,7 +314,7 @@ def gradient_monte_carlo(value_function, alpha, distribution=None):
     state = START_STATE
     trajectory = [state]
 
-    # We assume gamma = 1, so return is just the same as the latest reward
+    # We assume gamma = 1, so return is just the same as the latest reward TODO: why? no right? maybe gamma = 0
     reward = 0.0
     while state not in END_STATES:
         action = get_action()
