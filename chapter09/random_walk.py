@@ -19,27 +19,27 @@ from tqdm import tqdm
 Tile Coding Software version 3.0beta
 by Rich Sutton
 based on a program created by Steph Schaeffer and others
-External documentation and recommendations on the use of this code is available in the 
+External documentation and recommendations on the use of this code is available in the
 reinforcement learning textbook by Sutton and Barto, and on the web.
 These need to be understood before this code is.
 
 This software is for Python 3 or more.
 
 This is an implementation of grid-style tile codings, based originally on
-the UNH CMAC code (see http://www.ece.unh.edu/robots/cmac.htm), but by now highly changed. 
+the UNH CMAC code (see http://www.ece.unh.edu/robots/cmac.htm), but by now highly changed.
 Here we provide a function, "tiles", that maps floating and integer
 variables to a list of tiles, and a second function "tiles-wrap" that does the same while
 wrapping some floats to provided widths (the lower wrap value is always 0).
 
 The float variables will be gridded at unit intervals, so generalization
-will be by approximately 1 in each direction, and any scaling will have 
+will be by approximately 1 in each direction, and any scaling will have
 to be done externally before calling tiles.
 
 Num-tilings should be a power of 2, e.g., 16. To make the offsetting work properly, it should
 also be greater than or equal to four times the number of floats.
 
-The first argument is either an index hash table of a given size (created by (make-iht size)), 
-an integer "size" (range of the indices from 0), or nil (for testing, indicating that the tile 
+The first argument is either an index hash table of a given size (created by (make-iht size)),
+an integer "size" (range of the indices from 0), or nil (for testing, indicating that the tile
 coordinates are to be returned without being converted to indices).
 """
 
@@ -109,7 +109,6 @@ def tiles(ihtORsize, numtilings, floats, ints=[], readonly=False):
         Tiles.append(hashcoords(coords, ihtORsize, readonly))
     return Tiles
 
-
 def tileswrap(ihtORsize, numtilings, floats, wrapwidths, ints=[], readonly=False):
     """returns num-tilings tile indices corresponding to the floats and ints, wrapping some floats"""
     qfloats = [floor(f * numtilings) for f in floats]
@@ -127,7 +126,7 @@ def tileswrap(ihtORsize, numtilings, floats, wrapwidths, ints=[], readonly=False
     return Tiles
 
 # End of tile3.py
-#########
+########
 
 # the number of states except for terminal states
 N_STATES = 1000
@@ -267,6 +266,73 @@ class TilingsValueFunction:
             tileIndex = (state - self.tilings[tilingIndex]) // self.tileWidth
             self.params[tilingIndex, tileIndex] += delta
 
+
+# class for the value function by the tile coding code from Rich
+# http://www.incompleteideas.net/tiles/tiles3.html
+class Tiles3ValueFunction:
+    # @num_of_tilings
+    # @tileWidth: each tiling has several tiles, this parameter specifies the width of each tile
+    # @tilingOffset: specifies how tilings are put together
+    # def __init__(self, num_of_tilings, tileWidth, tilingOffset):
+    def __init__(self, iht, num_tilings, floats, ints):
+
+
+        # self.num_of_tilings = num_of_tilings
+        self.iht = iht
+        self.num_of_tilings = num_tilings
+        self.floats = floats
+        self.ints = ints
+        # self.tileWidth = tileWidth
+        self.tileWidth = 1
+        # self.tilingOffset = tilingOffset
+        self.tilingOffset = 1 / num_tilings
+        # To make sure that each sate is covered by same number of tiles,
+        # we need one more tile for each tiling  TODO: why one more? =》 in order to cover the whole state in each tiling
+        # tilingSize is the number of tiles in one tiling.
+        # self.tilingSize = N_STATES // tileWidth + 1
+        self.num_of_tiles_per_tiling = self.iht // num_tilings + 1
+        # weight for each tile
+        self.params = np.zeros((self.num_of_tilings, self.num_of_tiles_per_tiling))
+
+        # For performance, only track the starting position for each tiling  TODO：what is the meaning of self.tilings
+        # As we have one more tile for each tiling, the starting position will be negative
+        self.tilings = np.arange(-self.tileWidth + 1 / num_tilings, 0, self.tilingOffset)   # np.arange(start,stop,step)
+
+    # # get the value of @state
+    # def value(self, state):
+    #     stateValue = 0.0
+    #     # go through all the tilings
+    #     for tilingIndex in range(0, self.num_of_tilings):
+    #         # find the active tile in current tiling
+    #         tileIndex = (state - self.tilings[tilingIndex]) // self.tileWidth
+    #         stateValue += self.params[tilingIndex, tileIndex]
+    #     return stateValue
+
+    # get the value of @state
+    def value(self, state):
+        stateValue = 0.0
+        # state = self.floats
+        # go through all the tilings
+        for tiling_index in range(0, self.num_of_tilings):
+            tile_indices = tiles(self.iht, self.num_of_tilings, state, self.ints)
+            stateValue += self.params[tiling_index, tile_indices[tiling_index]]
+
+    # update parameters
+    # @delta: step size * (target - old estimation)
+    # @state: state of current sample
+    def update(self, delta, state):
+        # state = self.floats
+        # each state is covered by same number of tilings
+        # so the delta should be divided equally into each tiling (tile)  TODO: what is delta
+        delta /= self.num_of_tilings
+
+        # go through all the tilings
+        for tiling_index in range(0, self.num_of_tilings):
+            # find the active tile in current tiling
+            # tileIndex = (state - self.tilings[tiling_index]) // self.tileWidth
+            tile_indices = tiles(self.iht, self.num_of_tilings, state, self.ints)
+            self.params[tiling_index, tile_indices[tiling_index]] += delta
+
 # a wrapper class for polynomial / Fourier -based value function
 POLYNOMIAL_BASES = 0
 FOURIER_BASES = 1
@@ -381,7 +447,7 @@ def semi_gradient_temporal_difference(value_function, n, alpha):
         if update_time == T - 1:
             break
         state = next_state
-
+#%%
 # Figure 9.1, gradient Monte Carlo algorithm
 def figure_9_1(true_value):
     episodes = int(1e5)
@@ -428,7 +494,7 @@ def figure_9_2_left(true_value):
     plt.xlabel('State')
     plt.ylabel('Value')
     plt.legend()
-
+#%%
 # different alphas and steps for semi-gradient TD
 def figure_9_2_right(true_value):
     # all possible steps
@@ -474,7 +540,7 @@ def figure_9_2(true_value):
 
     plt.savefig('../images/figure_9_2.png')
     plt.close()
-
+#%%
 # Figure 9.5, Fourier basis and polynomials
 def figure_9_5(true_value):
     # my machine can only afford 1 run
@@ -519,6 +585,7 @@ def figure_9_5(true_value):
     plt.savefig('../images/figure_9_5.png')
     plt.close()
 
+#%%
 # Figure 9.10, it will take quite a while
 def figure_9_10(true_value):
 
@@ -533,7 +600,7 @@ def figure_9_10(true_value):
     # each tile will cover 200 states
     tile_width = 200
 
-    # how to put so many tilings
+    # how to put so many tilings  TODO: what is 4 means?
     tiling_offset = 4
 
     labels = ['tile coding (50 tilings)', 'state aggregation (one tiling)']
@@ -543,6 +610,66 @@ def figure_9_10(true_value):
     for run in range(runs):
         # initialize value functions for multiple tilings and single tiling
         value_functions = [TilingsValueFunction(num_of_tilings, tile_width, tiling_offset),
+                         ValueFunction(N_STATES // tile_width)]
+        print(value_functions)
+        for i in range(len(value_functions)):
+            for episode in tqdm(range(episodes)):
+                # I use a changing alpha according to the episode instead of a small fixed alpha
+                # With a small fixed alpha, I don't think 5000 episodes is enough for so many
+                # parameters in multiple tilings.
+                # The asymptotic performance for single tiling stays unchanged under a changing alpha,
+                # however the asymptotic performance for multiple tilings improves significantly
+                alpha = 1.0 / (episode + 1)
+
+                # gradient Monte Carlo algorithm
+                gradient_monte_carlo(value_functions[i], alpha)
+
+                # get state values under current value function
+                state_values = [value_functions[i].value(state) for state in STATES]
+
+                # get the root-mean-squared error
+                errors[i][episode] += np.sqrt(np.mean(np.power(true_value[1: -1] - state_values, 2)))
+
+    # average over independent runs
+    errors /= runs
+
+    for i in range(0, len(labels)):
+        plt.plot(errors[i], label=labels[i])
+    plt.xlabel('Episodes')
+    # The book plots RMSVE, which is RMSE weighted by a state distribution
+    plt.ylabel('RMSE')
+    plt.legend()
+
+    plt.savefig('../images/figure_9_10plus.png')
+    plt.close()
+#%%
+# Figure 9.11, it will take quite a while, by the tile_coding code from Rich
+def figure_9_11(true_value):
+
+    # My machine can only afford one run, thus the curve isn't so smooth
+    runs = 1
+
+    # number of episodes
+    episodes = 5000
+
+    num_of_tilings = 50
+
+    # each tile will cover 200 states
+    tile_width = 200
+
+    # how to put so many tilings  TODO: what is 4 means?
+    tiling_offset = 4
+
+    labels = ['tile coding (50 tilings)', 'state aggregation (one tiling)']
+    iht = IHT(1024)
+    num_tilings = 64
+    floats = state
+    ints = None
+    # track errors for each episode
+    errors = np.zeros((len(labels), episodes))
+    for run in range(runs):
+        # initialize value functions for multiple tilings and single tiling
+        value_functions = [Tiles3ValueFunction(iht, num_tilings, floats, ints),
                          ValueFunction(N_STATES // tile_width)]
         for i in range(len(value_functions)):
             for episode in tqdm(range(episodes)):
@@ -572,8 +699,10 @@ def figure_9_10(true_value):
     plt.ylabel('RMSE')
     plt.legend()
 
-    plt.savefig('../images/figure_9_10.png')
+    plt.savefig('../images/figure_9_10plus.png')
     plt.close()
+    
+
 
 if __name__ == '__main__':
     true_value = compute_true_value()

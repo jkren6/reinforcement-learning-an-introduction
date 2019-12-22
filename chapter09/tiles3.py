@@ -108,3 +108,8 @@ def tileswrap(ihtORsize, numtilings, floats, wrapwidths, ints=[], readonly=False
         coords.extend(ints)
         Tiles.append(hashcoords(coords, ihtORsize, readonly))
     return Tiles
+
+
+iht = IHT(1024)
+
+tiles(iht, 8, [3.6, 7.21])
